@@ -1,0 +1,6 @@
+{
+  "name": "VerdantRoute",
+  "description": "Smart Waste Collection System with fill-level bin monitoring, real-time updates, and road-optimized collection routes.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
