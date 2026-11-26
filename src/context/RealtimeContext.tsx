@@ -127,7 +127,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const customWsBase = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.replace(/\/$/, '');
       const wsUrl = customWsBase
-        ? `${customWsBase}/ws?token=${encodeURIComponent(token)}`
+        ? `${customWsBase.endsWith('/ws') ? customWsBase : `${customWsBase}/ws`}?token=${encodeURIComponent(token)}`
         : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
 
       setConnectionState('RECONNECTING');

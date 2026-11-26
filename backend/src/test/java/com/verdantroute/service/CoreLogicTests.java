@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.verdantroute.entity.Area;
 import com.verdantroute.entity.Sensor;
 import com.verdantroute.exception.ApiException;
+import com.verdantroute.util.FillMathUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import java.time.Instant;
@@ -13,17 +14,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CoreLogicTests {
 
-    private final SensorService sensorService = new SensorService(null, null, null, null, null);
-    private final RouteOptimizationService routeService = new RouteOptimizationService("https://router.project-osrm.org", 50, 12, new ObjectMapper());
+    private final RouteOptimizationService routeService =
+            new RouteOptimizationService("https://router.project-osrm.org", 50, 12, new ObjectMapper());
 
     @Test
     void fillPercentageCalculatesAndClampsAccurately() {
-        assertEquals(0.0, sensorService.calculateFillPercent(100.0, 100.0));
-        assertEquals(50.0, sensorService.calculateFillPercent(100.0, 50.0));
-        assertEquals(85.0, sensorService.calculateFillPercent(100.0, 15.0));
-        assertEquals(100.0, sensorService.calculateFillPercent(100.0, 0.0));
-        assertEquals(100.0, sensorService.calculateFillPercent(100.0, -5.0));
-        assertEquals(0.0, sensorService.calculateFillPercent(100.0, 140.0));
+        assertEquals(0.0, FillMathUtil.calculateFillPercent(100.0, 100.0));
+        assertEquals(50.0, FillMathUtil.calculateFillPercent(100.0, 50.0));
+        assertEquals(85.0, FillMathUtil.calculateFillPercent(100.0, 15.0));
+        assertEquals(100.0, FillMathUtil.calculateFillPercent(100.0, 0.0));
+        assertEquals(100.0, FillMathUtil.calculateFillPercent(100.0, -5.0));
+        assertEquals(0.0, FillMathUtil.calculateFillPercent(100.0, 140.0));
     }
 
     @Test
@@ -41,22 +42,22 @@ class CoreLogicTests {
         s.setLastSeenAt(now.minusSeconds(300));
 
         s.setLastFillPercent(25.0);
-        assertEquals(Sensor.SensorStatus.NORMAL, sensorService.computeStatus(s, area, now));
+        assertEquals(Sensor.SensorStatus.NORMAL, FillMathUtil.computeStatus(s, area, now));
 
         s.setLastFillPercent(55.0);
-        assertEquals(Sensor.SensorStatus.MEDIUM, sensorService.computeStatus(s, area, now));
+        assertEquals(Sensor.SensorStatus.MEDIUM, FillMathUtil.computeStatus(s, area, now));
 
         s.setLastFillPercent(85.0);
-        assertEquals(Sensor.SensorStatus.FULL, sensorService.computeStatus(s, area, now));
+        assertEquals(Sensor.SensorStatus.FULL, FillMathUtil.computeStatus(s, area, now));
 
         // Exceeds 2 * intervalSeconds (1801s > 1800s) -> OFFLINE
         s.setLastSeenAt(now.minusSeconds(1801));
-        assertEquals(Sensor.SensorStatus.OFFLINE, sensorService.computeStatus(s, area, now));
+        assertEquals(Sensor.SensorStatus.OFFLINE, FillMathUtil.computeStatus(s, area, now));
 
         // Inactive sensor is always OFFLINE even with recent reading
         s.setLastSeenAt(now.minusSeconds(10));
         s.setIsActive(false);
-        assertEquals(Sensor.SensorStatus.OFFLINE, sensorService.computeStatus(s, area, now));
+        assertEquals(Sensor.SensorStatus.OFFLINE, FillMathUtil.computeStatus(s, area, now));
     }
 
     @Test
@@ -73,8 +74,6 @@ class CoreLogicTests {
 
     @Test
     void returnToDepotChangesOptimalOrderWhenReturnLegMatters() {
-        // Open path prefers 1 -> 2 -> 3 (cost 10+10+12=32 vs 10+15+10=35).
-        // With returnToDepot=true, returning 2->0 is 1 whereas 3->0 is 500, so 1 -> 3 -> 2 -> 0 wins (36).
         double[][] asymmetric = {
                 {0,   10, 30, 35},
                 {200,  0, 10, 15},

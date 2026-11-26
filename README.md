@@ -8,13 +8,16 @@ An end-to-end fill-level-based waste collection platform for municipal zones, re
 
 ```text
 ├── src/                  # React + TypeScript + Tailwind CSS frontend (19 screens, PWA)
-├── backend/              # OFFICIAL Production Backend: Java 17 + Spring Boot 3.4 + MySQL
+├── backend/              # OFFICIAL Production Backend: Java 17 + Spring Boot 3.4 + MySQL 8
 │   ├── pom.xml
 │   ├── .env.example
-│   ├── scripts/          # Automated MySQL backup scripts (backup_mysql.sh / .bat)
+│   ├── WINDOWS_SETUP_AND_API_GUIDE.md
+│   ├── postman/          # Postman v2.1 collection (VerdantRoute_API.postman_collection.json)
+│   ├── scripts/          # Automated MySQL backup & restore verification scripts (.sh / .bat)
 │   └── src/main/
 │       ├── resources/
 │       │   ├── application.properties
+│       │   ├── db/migration/V1__init_schema.sql
 │       │   └── schema.sql
 │       └── java/com/verdantroute/...
 ├── server.ts             # AI Studio cloud-sandbox preview runtime only (port 3000)
@@ -29,6 +32,8 @@ An end-to-end fill-level-based waste collection platform for municipal zones, re
 
 ### 1. Official Production Backend (Java Spring Boot + MySQL `smart_waste_db`)
 **Java Spring Boot + MySQL (`/backend/`) is the official production backend** for VerdantRoute.
+
+For step-by-step Windows 10/11 instructions, full REST + WebSocket API tables, and Postman collection import steps, see [`/backend/WINDOWS_SETUP_AND_API_GUIDE.md`](./backend/WINDOWS_SETUP_AND_API_GUIDE.md) and [`/backend/postman/VerdantRoute_API.postman_collection.json`](./backend/postman/VerdantRoute_API.postman_collection.json).
 
 #### Security Prerequisites
 - Never store passwords or JWT secrets in `application.properties`, `README.md`, or `.env.local` in git.
@@ -91,10 +96,10 @@ export OSRM_TIMEOUT_SECONDS=12
 #### Run the Official Spring Boot Server
 ```bash
 cd backend
-mvn test
+mvn clean test
 mvn spring-boot:run
 ```
-Spring Boot listens on `http://localhost:8080` and initializes/updates the MySQL schema (`areas`, `users`, `sensors`, `sensor_readings`, `tasks`, `task_bins`, `notifications`).
+Spring Boot listens on `http://localhost:8080`, runs Flyway migration `V1__init_schema.sql`, and validates the MySQL schema (`areas`, `users`, `sensors`, `sensor_readings`, `tasks`, `task_bins`, `notifications`) with `ddl-auto=validate`.
 
 #### Connect the React Frontend to Spring Boot Locally
 Create an untracked `.env.local` in the project root:
@@ -109,14 +114,11 @@ npm run dev:java-frontend
 ```
 
 #### Database Backups & Restore Verification
-Automated `mysqldump` scripts are included in `/backend/scripts/`:
-- **Linux/macOS**: `DB_PASSWORD='<YOUR_MYSQL_PASSWORD>' ./backend/scripts/backup_mysql.sh ./backups` (retains 14 days of `.sql.gz` backups)
-- **Windows**: `set DB_PASSWORD=<YOUR_MYSQL_PASSWORD> && backend\scripts\backup_mysql.bat backups`
-
-Verify backups regularly by restoring into a scratch verification schema:
-```bash
-gunzip -c backups/smart_waste_db_YYYYMMDD_HHMMSS.sql.gz | mysql -u root -p smart_waste_db_restore_test
-```
+Automated `mysqldump` backup and restore-verification scripts are included in `/backend/scripts/`, and Admins can also trigger/inspect backups via `GET` / `POST /api/admin/backups`:
+- **Linux/macOS Backup**: `DB_PASSWORD='<YOUR_MYSQL_PASSWORD>' ./backend/scripts/backup_mysql.sh ./backups` (retains 14 `.sql.gz` backups)
+- **Linux/macOS Restore Check**: `DB_PASSWORD='<YOUR_MYSQL_PASSWORD>' ./backend/scripts/restore_mysql.sh ./backups/smart_waste_db_YYYYMMDD_HHMMSS.sql.gz`
+- **Windows Backup**: `set DB_PASSWORD=<YOUR_MYSQL_PASSWORD> && backend\scripts\backup_mysql.bat backups`
+- **Windows Restore Check**: `set DB_PASSWORD=<YOUR_MYSQL_PASSWORD> && backend\scripts\restore_mysql.bat backups\smart_waste_db_YYYYMMDD_HHMMSS.sql`
 
 ---
 

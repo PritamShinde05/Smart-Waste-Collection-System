@@ -43,6 +43,7 @@ function getFullTaskDetail(taskId: number, areaId: number) {
     areaId: task.area_id,
     status: task.status,
     startType: task.start_type,
+    returnToDepot: Boolean(task.return_to_depot),
     startLat: task.start_lat,
     startLng: task.start_lng,
     routeGeometry: parsedGeometry,
@@ -204,11 +205,12 @@ export async function createTask(req: AuthedRequest, res: Response) {
     return;
   }
 
+  const roundTrip = Boolean(returnToDepot);
   const taskId = withTransaction(() => {
     const ins = db
       .prepare(
-        `INSERT INTO tasks (area_id, created_by, assigned_to, status, start_type, start_lat, start_lng, route_geometry, total_distance_meters, estimated_time_seconds, note)
-         VALUES (?, ?, ?, 'ASSIGNED', ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (area_id, created_by, assigned_to, status, start_type, start_lat, start_lng, return_to_depot, route_geometry, total_distance_meters, estimated_time_seconds, note)
+         VALUES (?, ?, ?, 'ASSIGNED', ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         req.auth!.areaId,
@@ -217,6 +219,7 @@ export async function createTask(req: AuthedRequest, res: Response) {
         resolved.startType,
         resolved.startPoint.latitude,
         resolved.startPoint.longitude,
+        roundTrip ? 1 : 0,
         JSON.stringify(optimized.routeGeometry),
         optimized.totalDistanceMeters,
         optimized.estimatedTimeSeconds,
@@ -384,10 +387,11 @@ export async function reoptimizeTask(req: AuthedRequest, res: Response) {
     return;
   }
 
+  const roundTrip = typeof req.body?.returnToDepot === 'boolean' ? req.body.returnToDepot : Boolean(task.return_to_depot);
   let optimized;
   try {
     optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins, {
-      returnToDepot: Boolean(req.body?.returnToDepot),
+      returnToDepot: roundTrip,
     });
   } catch (err: any) {
     const status = err?.message?.includes('Maximum') ? 400 : 503;
@@ -406,12 +410,13 @@ export async function reoptimizeTask(req: AuthedRequest, res: Response) {
   withTransaction(() => {
     db.prepare(
       `UPDATE tasks
-       SET start_type = ?, start_lat = ?, start_lng = ?, route_geometry = ?, total_distance_meters = ?, estimated_time_seconds = ?
+       SET start_type = ?, start_lat = ?, start_lng = ?, return_to_depot = ?, route_geometry = ?, total_distance_meters = ?, estimated_time_seconds = ?
        WHERE id = ?`
     ).run(
       resolved.startType,
       resolved.startPoint.latitude,
       resolved.startPoint.longitude,
+      roundTrip ? 1 : 0,
       JSON.stringify(optimized.routeGeometry),
       optimized.totalDistanceMeters,
       optimized.estimatedTimeSeconds,

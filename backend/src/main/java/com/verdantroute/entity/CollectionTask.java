@@ -1,6 +1,8 @@
 package com.verdantroute.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +29,7 @@ public class CollectionTask {
     private User assignedTo;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
     private TaskStatus status = TaskStatus.ASSIGNED;
 
@@ -42,7 +45,7 @@ public class CollectionTask {
     @Column(name = "return_to_depot", nullable = false)
     private Boolean returnToDepot = false;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "route_geometry", nullable = false, columnDefinition = "LONGTEXT")
     private String routeGeometry;
 

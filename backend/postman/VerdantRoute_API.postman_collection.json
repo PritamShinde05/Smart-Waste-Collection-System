@@ -1,0 +1,617 @@
+{
+  "info": {
+    "name": "VerdantRoute Smart Waste Collection API",
+    "_postman_id": "a4c9f8b2-1d63-4e20-8a7e-7731c0b9a110",
+    "description": "Complete Postman v2.1 collection for the official Java 17 + Spring Boot 3.4 + MySQL 8 backend (/backend).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "deviceKey", "value": "" },
+    { "key": "binId", "value": "BIN-101" },
+    { "key": "sensorId", "value": "1" },
+    { "key": "employeeId", "value": "2" },
+    { "key": "taskId", "value": "1" },
+    { "key": "taskBinId", "value": "1" },
+    { "key": "notificationId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "01. Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Authentication",
+      "item": [
+        {
+          "name": "Register Admin & Municipal Area",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.token) pm.collectionVariables.set('token', json.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Municipal Admin\",\n  \"email\": \"admin@verdantroute.local\",\n  \"mobile\": \"+919800000001\",\n  \"password\": \"AdminPass123!\",\n  \"confirmPassword\": \"AdminPass123!\",\n  \"areaName\": \"Central Zone\",\n  \"city\": \"Pune\",\n  \"centreLat\": 18.5204,\n  \"centreLng\": 73.8567\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/register-admin"
+          }
+        },
+        {
+          "name": "Login (Email or Mobile)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.token) pm.collectionVariables.set('token', json.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"admin@verdantroute.local\",\n  \"password\": \"AdminPass123!\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "Current User (/me)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"AdminPass123!\",\n  \"newPassword\": \"AdminPass456!\",\n  \"confirmPassword\": \"AdminPass456!\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/change-password"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. Municipal Area",
+      "item": [
+        {
+          "name": "Get Area Settings",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/area"
+          }
+        },
+        {
+          "name": "Update Area Settings (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Central Zone\",\n  \"city\": \"Pune\",\n  \"centreLat\": 18.5204,\n  \"centreLng\": 73.8567,\n  \"defaultIntervalSeconds\": 900,\n  \"mediumThreshold\": 50,\n  \"fullThreshold\": 80\n}"
+            },
+            "url": "{{baseUrl}}/api/area"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. Sensors & Device Telemetry",
+      "item": [
+        {
+          "name": "List Sensors (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/sensors"
+          }
+        },
+        {
+          "name": "Create Sensor (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.sensor && json.sensor.id) pm.collectionVariables.set('sensorId', String(json.sensor.id));",
+                  "  if (json.sensor && json.sensor.binId) pm.collectionVariables.set('binId', json.sensor.binId);",
+                  "  if (json.deviceKey) pm.collectionVariables.set('deviceKey', json.deviceKey);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"binId\": \"BIN-101\",\n  \"label\": \"Shivajinagar Main Gate\",\n  \"latitude\": 18.5308,\n  \"longitude\": 73.8475,\n  \"binHeightCm\": 120,\n  \"intervalSeconds\": 900,\n  \"fullThreshold\": 80\n}"
+            },
+            "url": "{{baseUrl}}/api/sensors"
+          }
+        },
+        {
+          "name": "Get Sensor Detail (day/week/month)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/sensors/{{sensorId}}?range=day"
+          }
+        },
+        {
+          "name": "Update Sensor (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Shivajinagar Gate East\",\n  \"intervalSeconds\": 600,\n  \"fullThreshold\": 85,\n  \"isActive\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/sensors/{{sensorId}}"
+          }
+        },
+        {
+          "name": "Regenerate Sensor Device Key (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.deviceKey) pm.collectionVariables.set('deviceKey', json.deviceKey);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/sensors/{{sensorId}}/regenerate-key"
+          }
+        },
+        {
+          "name": "Simulate Sensor Reading (Admin QA)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"distanceCm\": 18\n}"
+            },
+            "url": "{{baseUrl}}/api/sensors/{{sensorId}}/simulate-reading"
+          }
+        },
+        {
+          "name": "ESP32 Telemetry Reading (X-Device-Key)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Device-Key", "value": "{{deviceKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"binId\": \"{{binId}}\",\n  \"distanceCm\": 22.5\n}"
+            },
+            "url": "{{baseUrl}}/api/device/reading"
+          }
+        },
+        {
+          "name": "Delete Sensor (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/sensors/{{sensorId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. Dashboard Analytics (Admin)",
+      "item": [
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/dashboard/summary"
+          }
+        },
+        {
+          "name": "Fill Trends",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/dashboard/fill-trends?days=7"
+          }
+        },
+        {
+          "name": "Collection Stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/dashboard/collections?days=14"
+          }
+        },
+        {
+          "name": "Employee Workload Stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/dashboard/employee-stats?days=30"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. Employees (Admin)",
+      "item": [
+        {
+          "name": "List Employees",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/employees"
+          }
+        },
+        {
+          "name": "Create Employee",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.employee && json.employee.id) pm.collectionVariables.set('employeeId', String(json.employee.id));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rohan Patil\",\n  \"email\": \"rohan@verdantroute.local\",\n  \"mobile\": \"+919811112222\",\n  \"password\": \"DriverPass123!\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/employees"
+          }
+        },
+        {
+          "name": "Update Employee",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rohan Patil\",\n  \"email\": \"rohan@verdantroute.local\",\n  \"mobile\": \"+919811112222\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/employees/{{employeeId}}"
+          }
+        },
+        {
+          "name": "Toggle Employee Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": "{{baseUrl}}/api/employees/{{employeeId}}/status"
+          }
+        },
+        {
+          "name": "Reset Employee Password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPassword\": \"DriverPass456!\"\n}"
+            },
+            "url": "{{baseUrl}}/api/employees/{{employeeId}}/reset-password"
+          }
+        },
+        {
+          "name": "Get Employee Task History",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/employees/{{employeeId}}/history"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. Routes & Tasks (Admin)",
+      "item": [
+        {
+          "name": "Preview OSRM Optimized Route",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startType\": \"DEPOT\",\n  \"employeeId\": {{employeeId}},\n  \"sensorIds\": [{{sensorId}}],\n  \"returnToDepot\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/routes/preview"
+          }
+        },
+        {
+          "name": "Create & Assign Task",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.task && json.task.id) pm.collectionVariables.set('taskId', String(json.task.id));",
+                  "  if (json.task && json.task.stops && json.task.stops.length > 0) {",
+                  "    pm.collectionVariables.set('taskBinId', String(json.task.stops[0].taskBinId));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeId\": {{employeeId}},\n  \"sensorIds\": [{{sensorId}}],\n  \"startType\": \"DEPOT\",\n  \"note\": \"Morning priority collection\",\n  \"returnToDepot\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/tasks"
+          }
+        },
+        {
+          "name": "List Tasks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/tasks"
+          }
+        },
+        {
+          "name": "Get Task Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}"
+          }
+        },
+        {
+          "name": "Reoptimize Task Route",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startType\": \"DEPOT\",\n  \"returnToDepot\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/reoptimize"
+          }
+        },
+        {
+          "name": "Cancel Task",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/cancel"
+          }
+        }
+      ]
+    },
+    {
+      "name": "08. Employee Workflow & GPS",
+      "item": [
+        {
+          "name": "List My Assigned Tasks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/employee/tasks"
+          }
+        },
+        {
+          "name": "Get My Task Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/employee/tasks/{{taskId}}"
+          }
+        },
+        {
+          "name": "Accept Task",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/employee/tasks/{{taskId}}/accept"
+          }
+        },
+        {
+          "name": "Update Employee Live GPS",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 18.525,\n  \"longitude\": 73.852\n}"
+            },
+            "url": "{{baseUrl}}/api/employee/location"
+          }
+        },
+        {
+          "name": "Mark Stop Bin Collected",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/employee/tasks/{{taskId}}/bins/{{taskBinId}}/collect"
+          }
+        },
+        {
+          "name": "Complete Task",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"completionNote\": \"All assigned bins cleared and returned to depot.\"\n}"
+            },
+            "url": "{{baseUrl}}/api/employee/tasks/{{taskId}}/complete"
+          }
+        }
+      ]
+    },
+    {
+      "name": "09. Notifications",
+      "item": [
+        {
+          "name": "List My Notifications",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/notifications"
+          }
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/notifications/{{notificationId}}/read"
+          }
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/notifications/read-all"
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Database Backups (Admin)",
+      "item": [
+        {
+          "name": "List Verified MySQL Backups",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/admin/backups"
+          }
+        },
+        {
+          "name": "Trigger MySQL Backup Now",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/admin/backups"
+          }
+        }
+      ]
+    }
+  ]
+}
