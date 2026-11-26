@@ -1,12 +1,14 @@
 /*
  * VerdantRoute — ESP32 + HC-SR04 Smart Waste Bin Sensor Firmware
  *
- * Features:
- *  - Multi-sample median filtering on HC-SR04 ultrasonic readings
- *  - NTP UTC time synchronization for accurate reading timestamps
- *  - HTTP/HTTPS POST to /api/device/reading with Bin ID + Device Key authentication
- *  - Dynamic interval updates returned by the server (readingIntervalSeconds)
- *  - LittleFS offline queue: stores failed readings with timestamps and retries when online
+ * Security & Reliability Features:
+ *  - Verified HTTPS TLS via WiFiClientSecure.setCACert(ROOT_CA_PEM) (no setInsecure())
+ *  - Startup placeholder validation to prevent unconfigured device uploads
+ *  - 9-sample median filtering + burst spread rejection against irregular surfaces/noise
+ *  - Sensor mounting calibration offset (SENSOR_MOUNT_OFFSET_CM) & local range guard
+ *  - NTP UTC time synchronization for delayed offline reading accuracy
+ *  - LittleFS persistent offline queue with automatic Wi-Fi reconnect recovery
+ *  - Dynamic reading interval updates returned by the server
  */
 
 #include <WiFi.h>
@@ -16,33 +18,81 @@
 #include <LittleFS.h>
 #include <time.h>
 
-// ==================== CONFIGURATION ====================
-// Replace these placeholders before flashing to your ESP32
+// ==================== PROVISIONING CONFIGURATION ====================
+// Replace ALL placeholder values below before flashing to your ESP32.
+// Never commit real Wi-Fi passwords or production device keys to Git.
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-// Base URL of your VerdantRoute backend (Spring Boot or Node preview)
-// Example: "http://192.168.1.50:8080" or "https://your-domain.example"
-const char* SERVER_BASE_URL = "http://192.168.1.50:8080";
+// Base URL of your official Java Spring Boot backend
+// Example local LAN:  "http://192.168.1.50:8080"
+// Example production: "https://api.your-municipality.org"
+const char* SERVER_BASE_URL = "https://api.your-domain.example";
 
 // Provisioned in VerdantRoute Admin -> Sensors -> Add Sensor
 const char* BIN_ID     = "BIN-101";
 const char* DEVICE_KEY = "PASTE_YOUR_ONE_TIME_DEVICE_KEY_HERE";
 
-// HC-SR04 GPIO Pins (use 1k/2k voltage divider on ECHO -> 3.3V safe!)
+// PEM-encoded Root CA certificate for HTTPS verification (required when SERVER_BASE_URL uses https://).
+// For Let's Encrypt / Google Trust Services / your reverse proxy CA, paste the full PEM block below.
+const char* ROOT_CA_PEM = R"EOF(
+PASTE_ROOT_CA_PEM_HERE
+)EOF";
+
+// ==================== SENSOR & CALIBRATION SETTINGS ====================
+// HC-SR04 GPIO Pins (use a 1k/2k resistor voltage divider on ECHO -> 3.3V safe!)
 const int TRIG_PIN = 5;
 const int ECHO_PIN = 18;
 
-// Sampling & queue tuning
-const int SAMPLES_PER_READING = 7;
-const unsigned long SAMPLE_DELAY_MS = 60;
+// Calibration: distance (cm) from sensor face down to the bin's 0 cm (100% full) top rim.
+// Example: if the ultrasonic face is mounted 4.0 cm above the bin rim, set 4.0f.
+const float SENSOR_MOUNT_OFFSET_CM = 0.0f;
+const float MIN_ECHO_CM = 2.0f;
+const float MAX_ECHO_CM = 450.0f;
+
+// Sampling & reliability tuning
+const int SAMPLES_PER_READING = 9;
+const int MIN_VALID_SAMPLES = 3;
+const float MAX_SAMPLE_SPREAD_CM = 25.0f;
+const unsigned long SAMPLE_DELAY_MS = 65;
+
+// Persistent offline recovery queue
 const char* QUEUE_FILE = "/offline_readings.jsonl";
 const size_t MAX_QUEUED_READINGS = 120;
 
 // Default reading interval (overridden dynamically by server response)
 unsigned long readingIntervalSeconds = 900; // 15 minutes default
+bool configValid = false;
 
-// ==================== HELPERS ====================
+// ==================== CONFIGURATION VALIDATION ====================
+bool isPlaceholder(const char* value, const char* marker) {
+  if (!value || strlen(value) == 0) return true;
+  return strstr(value, marker) != nullptr;
+}
+
+bool validateConfiguration() {
+  bool ok = true;
+  if (isPlaceholder(WIFI_SSID, "YOUR_WIFI_SSID") || isPlaceholder(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD")) {
+    Serial.println("[CONFIG ERROR] Replace WIFI_SSID and WIFI_PASSWORD placeholders before running.");
+    ok = false;
+  }
+  if (isPlaceholder(DEVICE_KEY, "PASTE_YOUR_ONE_TIME_DEVICE_KEY_HERE") || strlen(BIN_ID) == 0) {
+    Serial.println("[CONFIG ERROR] Replace BIN_ID and DEVICE_KEY with your provisioned sensor credentials.");
+    ok = false;
+  }
+  String base(SERVER_BASE_URL);
+  if (base.indexOf("your-domain.example") >= 0) {
+    Serial.println("[CONFIG ERROR] Set SERVER_BASE_URL to your Spring Boot backend URL.");
+    ok = false;
+  }
+  if (base.startsWith("https://") && isPlaceholder(ROOT_CA_PEM, "PASTE_ROOT_CA_PEM_HERE")) {
+    Serial.println("[CONFIG ERROR] HTTPS requires a valid ROOT_CA_PEM certificate for TLS verification.");
+    ok = false;
+  }
+  return ok;
+}
+
+// ==================== TIME & ULTRASONIC SENSING ====================
 void setupTime() {
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   Serial.print("Syncing NTP time");
@@ -54,13 +104,13 @@ void setupTime() {
     now = time(nullptr);
     retries++;
   }
-  Serial.println(now >= 1700000000 ? " synced." : " failed (will use fallback if needed).");
+  Serial.println(now >= 1700000000 ? " synced." : " failed (server timestamp will be used).");
 }
 
 String getIsoTimestamp() {
   time_t now = time(nullptr);
   if (now < 1700000000) {
-    return ""; // Let server assign receive time if NTP not yet synced
+    return "";
   }
   struct tm timeinfo;
   gmtime_r(&now, &timeinfo);
@@ -76,7 +126,7 @@ float measureSingleDistanceCm() {
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  // Timeout 35ms (~600 cm max range)
+  // Timeout 35ms (~600 cm round-trip limit)
   unsigned long duration = pulseIn(ECHO_PIN, HIGH, 35000UL);
   if (duration == 0) {
     return -1.0f;
@@ -84,23 +134,26 @@ float measureSingleDistanceCm() {
   return (duration * 0.0343f) / 2.0f;
 }
 
-float measureMedianDistanceCm() {
+float measureCalibratedMedianDistanceCm() {
   float valid[SAMPLES_PER_READING];
   int count = 0;
 
   for (int i = 0; i < SAMPLES_PER_READING; i++) {
-    float d = measureSingleDistanceCm();
-    if (d >= 2.0f && d <= 450.0f) {
-      valid[count++] = d;
+    float raw = measureSingleDistanceCm();
+    if (raw >= MIN_ECHO_CM && raw <= MAX_ECHO_CM) {
+      float calibrated = raw - SENSOR_MOUNT_OFFSET_CM;
+      if (calibrated < 0.0f) calibrated = 0.0f;
+      valid[count++] = calibrated;
     }
     delay(SAMPLE_DELAY_MS);
   }
 
-  if (count == 0) {
+  if (count < MIN_VALID_SAMPLES) {
+    Serial.printf("Insufficient valid ultrasonic samples (%d/%d).\n", count, MIN_VALID_SAMPLES);
     return -1.0f;
   }
 
-  // Insertion sort for median selection
+  // Insertion sort for median + spread outlier rejection
   for (int i = 1; i < count; i++) {
     float key = valid[i];
     int j = i - 1;
@@ -111,9 +164,19 @@ float measureMedianDistanceCm() {
     valid[j + 1] = key;
   }
 
+  // Check interquartile/inner spread (ignore outermost single outlier on each end when count >= 5)
+  int lowIdx = count >= 5 ? 1 : 0;
+  int highIdx = count >= 5 ? count - 2 : count - 1;
+  float spread = valid[highIdx] - valid[lowIdx];
+  if (spread > MAX_SAMPLE_SPREAD_CM) {
+    Serial.printf("Unstable echo burst rejected (spread %.2f cm > %.2f cm).\n", spread, MAX_SAMPLE_SPREAD_CM);
+    return -1.0f;
+  }
+
   return valid[count / 2];
 }
 
+// ==================== NETWORK & VERIFIED TLS UPLOAD ====================
 bool connectWifi() {
   if (WiFi.status() == WL_CONNECTED) {
     return true;
@@ -148,11 +211,13 @@ bool postPayload(const String& jsonBody) {
 
   bool started = false;
   if (endpoint.startsWith("https://")) {
-    // For production HTTPS, call secureClient.setCACert(ROOT_CA_PEM) instead of setInsecure()
-    secureClient.setInsecure();
+    secureClient.setCACert(ROOT_CA_PEM);
     started = http.begin(secureClient, endpoint);
-  } else {
+  } else if (endpoint.startsWith("http://")) {
     started = http.begin(plainClient, endpoint);
+  } else {
+    Serial.println("Invalid SERVER_BASE_URL scheme.");
+    return false;
   }
 
   if (!started) {
@@ -175,7 +240,7 @@ bool postPayload(const String& jsonBody) {
     if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
       if (respDoc.containsKey("readingIntervalSeconds")) {
         unsigned long nextInterval = respDoc["readingIntervalSeconds"].as<unsigned long>();
-        if (nextInterval >= 10 && nextInterval <= 86400) {
+        if (nextInterval >= 60 && nextInterval <= 14400) {
           readingIntervalSeconds = nextInterval;
           Serial.printf("Updated reading interval: %lu s\n", readingIntervalSeconds);
         }
@@ -186,19 +251,19 @@ bool postPayload(const String& jsonBody) {
 
   // Do not re-queue permanently rejected payloads (400 out-of-range, 401 bad key, 403 deactivated)
   if (statusCode == 400 || statusCode == 401 || statusCode == 403) {
-    Serial.println("Server rejected reading permanently; dropping this entry.");
+    Serial.println("Server rejected reading permanently; dropping entry.");
     return true;
   }
 
   return false;
 }
 
+// ==================== PERSISTENT OFFLINE RECOVERY QUEUE ====================
 void enqueueReading(const String& jsonLine) {
   if (!LittleFS.begin(true)) {
     return;
   }
 
-  // Count existing lines to prevent unbounded flash wear
   int lineCount = 0;
   if (LittleFS.exists(QUEUE_FILE)) {
     File f = LittleFS.open(QUEUE_FILE, FILE_READ);
@@ -210,7 +275,7 @@ void enqueueReading(const String& jsonLine) {
   }
 
   if (lineCount >= (int)MAX_QUEUED_READINGS) {
-    Serial.println("Offline queue full; skipping enqueue.");
+    Serial.println("Offline queue full; skipping enqueue to protect flash.");
     return;
   }
 
@@ -262,7 +327,6 @@ void flushOfflineQueue() {
 String buildReadingJson(float distanceCm, const String& isoTimestamp) {
   StaticJsonDocument<256> doc;
   doc["binId"] = BIN_ID;
-  doc["deviceKey"] = DEVICE_KEY;
   doc["distanceCm"] = roundf(distanceCm * 100.0f) / 100.0f;
   if (isoTimestamp.length() > 0) {
     doc["timestamp"] = isoTimestamp;
@@ -283,6 +347,12 @@ void setup() {
 
   LittleFS.begin(true);
 
+  configValid = validateConfiguration();
+  if (!configValid) {
+    Serial.println("Halting telemetry until firmware configuration placeholders are replaced.");
+    return;
+  }
+
   if (connectWifi()) {
     setupTime();
     flushOfflineQueue();
@@ -290,12 +360,17 @@ void setup() {
 }
 
 void loop() {
-  float distanceCm = measureMedianDistanceCm();
+  if (!configValid) {
+    delay(10000);
+    return;
+  }
+
+  float distanceCm = measureCalibratedMedianDistanceCm();
 
   if (distanceCm < 0.0f) {
-    Serial.println("Ultrasonic sensor read error (no echo). Retrying next cycle.");
+    Serial.println("Invalid or unstable ultrasonic reading; skipping upload this cycle.");
   } else {
-    Serial.printf("Measured median distance: %.2f cm\n", distanceCm);
+    Serial.printf("Calibrated median distance: %.2f cm\n", distanceCm);
     String ts = getIsoTimestamp();
     String payload = buildReadingJson(distanceCm, ts);
 

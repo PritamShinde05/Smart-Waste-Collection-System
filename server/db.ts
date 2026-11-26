@@ -82,6 +82,7 @@ export function initDatabase() {
       start_type TEXT NOT NULL DEFAULT 'DEPOT',
       start_lat REAL NOT NULL,
       start_lng REAL NOT NULL,
+      return_to_depot INTEGER NOT NULL DEFAULT 0,
       route_geometry TEXT NOT NULL,
       total_distance_meters REAL NOT NULL DEFAULT 0,
       estimated_time_seconds REAL NOT NULL DEFAULT 0,
@@ -126,6 +127,12 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_task_bins_task ON task_bins(task_id, stop_order);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_flag, created_at);
   `);
+
+  // Safe migration for existing SQLite DBs created before return_to_depot
+  const taskCols = db.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>;
+  if (!taskCols.some((c) => c.name === 'return_to_depot')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN return_to_depot INTEGER NOT NULL DEFAULT 0;');
+  }
 }
 
 export function withTransaction<T>(fn: () => T): T {

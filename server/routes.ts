@@ -124,6 +124,7 @@ function getFullTaskDetail(taskId: number, areaId: number) {
     areaId: task.area_id,
     status: task.status,
     startType: task.start_type,
+    returnToDepot: Boolean(task.return_to_depot),
     startLat: task.start_lat,
     startLng: task.start_lng,
     routeGeometry: parsedGeometry,
@@ -1339,7 +1340,7 @@ function resolveStartAndBins(areaId: number, startType: string, employeeId: numb
 }
 
 apiRouter.post('/routes/preview', requireAuth, requireRole('ADMIN'), async (req: AuthedRequest, res: Response) => {
-  const { startType, employeeId, sensorIds } = req.body || {};
+  const { startType, employeeId, sensorIds, returnToDepot } = req.body || {};
   if (!Array.isArray(sensorIds) || sensorIds.length === 0) {
     res.status(400).json({ error: 'Select at least one bin to generate an optimized route.' });
     return;
@@ -1354,22 +1355,23 @@ apiRouter.post('/routes/preview', requireAuth, requireRole('ADMIN'), async (req:
   }
 
   try {
-    const optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins);
+    const optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins, Boolean(returnToDepot));
     res.json({
       startType: resolved.startType,
       startPoint: resolved.startPoint,
       ...optimized,
     });
   } catch (err: any) {
-    res.status(503).json({
+    const status = err?.statusCode === 400 ? 400 : 503;
+    res.status(status).json({
       error: err.message || 'Road routing service is temporarily unavailable. Please retry.',
-      retryable: true,
+      retryable: status !== 400,
     });
   }
 });
 
 apiRouter.post('/tasks', requireAuth, requireRole('ADMIN'), async (req: AuthedRequest, res: Response) => {
-  const { employeeId, sensorIds, startType, note } = req.body || {};
+  const { employeeId, sensorIds, startType, note, returnToDepot } = req.body || {};
   const empId = Number(employeeId);
 
   if (!empId || !Array.isArray(sensorIds) || sensorIds.length === 0) {
@@ -1397,13 +1399,15 @@ apiRouter.post('/tasks', requireAuth, requireRole('ADMIN'), async (req: AuthedRe
     return;
   }
 
+  const roundTrip = Boolean(returnToDepot);
   let optimized;
   try {
-    optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins);
+    optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins, roundTrip);
   } catch (err: any) {
-    res.status(503).json({
+    const status = err?.statusCode === 400 ? 400 : 503;
+    res.status(status).json({
       error: err.message || 'Road routing service temporarily unavailable. Please retry.',
-      retryable: true,
+      retryable: status !== 400,
     });
     return;
   }
@@ -1411,8 +1415,8 @@ apiRouter.post('/tasks', requireAuth, requireRole('ADMIN'), async (req: AuthedRe
   const taskId = withTransaction(() => {
     const ins = db
       .prepare(
-        `INSERT INTO tasks (area_id, created_by, assigned_to, status, start_type, start_lat, start_lng, route_geometry, total_distance_meters, estimated_time_seconds, note)
-         VALUES (?, ?, ?, 'ASSIGNED', ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (area_id, created_by, assigned_to, status, start_type, start_lat, start_lng, return_to_depot, route_geometry, total_distance_meters, estimated_time_seconds, note)
+         VALUES (?, ?, ?, 'ASSIGNED', ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         req.auth!.areaId,
@@ -1421,6 +1425,7 @@ apiRouter.post('/tasks', requireAuth, requireRole('ADMIN'), async (req: AuthedRe
         resolved.startType,
         resolved.startPoint.latitude,
         resolved.startPoint.longitude,
+        roundTrip ? 1 : 0,
         JSON.stringify(optimized.routeGeometry),
         optimized.totalDistanceMeters,
         optimized.estimatedTimeSeconds,
@@ -1588,13 +1593,15 @@ apiRouter.post('/tasks/:id/reoptimize', requireAuth, requireRole('ADMIN'), async
     return;
   }
 
+  const roundTrip = typeof req.body?.returnToDepot === 'boolean' ? req.body.returnToDepot : Boolean(task.return_to_depot);
   let optimized;
   try {
-    optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins);
+    optimized = await optimizeRoadRoute(resolved.startPoint, resolved.bins, roundTrip);
   } catch (err: any) {
-    res.status(503).json({
+    const status = err?.statusCode === 400 ? 400 : 503;
+    res.status(status).json({
       error: err.message || 'Road routing service unavailable. Please retry.',
-      retryable: true,
+      retryable: status !== 400,
     });
     return;
   }
@@ -1607,12 +1614,13 @@ apiRouter.post('/tasks/:id/reoptimize', requireAuth, requireRole('ADMIN'), async
   withTransaction(() => {
     db.prepare(
       `UPDATE tasks
-       SET start_type = ?, start_lat = ?, start_lng = ?, route_geometry = ?, total_distance_meters = ?, estimated_time_seconds = ?
+       SET start_type = ?, start_lat = ?, start_lng = ?, return_to_depot = ?, route_geometry = ?, total_distance_meters = ?, estimated_time_seconds = ?
        WHERE id = ?`
     ).run(
       resolved.startType,
       resolved.startPoint.latitude,
       resolved.startPoint.longitude,
+      roundTrip ? 1 : 0,
       JSON.stringify(optimized.routeGeometry),
       optimized.totalDistanceMeters,
       optimized.estimatedTimeSeconds,

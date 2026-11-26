@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     start_type VARCHAR(40) NOT NULL DEFAULT 'DEPOT',
     start_lat DOUBLE NOT NULL,
     start_lng DOUBLE NOT NULL,
+    return_to_depot BOOLEAN NOT NULL DEFAULT FALSE,
     route_geometry LONGTEXT NOT NULL,
     total_distance_meters DOUBLE NOT NULL DEFAULT 0,
     estimated_time_seconds DOUBLE NOT NULL DEFAULT 0,

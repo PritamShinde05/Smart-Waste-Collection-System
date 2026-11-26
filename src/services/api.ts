@@ -234,10 +234,10 @@ export const api = {
     request<{ employee: Employee; tasks: TaskSummary[] }>(`/api/employees/${id}/history`),
 
   // Tasks & Routing (Admin)
-  previewRoute: (payload: { startType: string; employeeId?: number; sensorIds: number[] }) =>
+  previewRoute: (payload: { startType: string; employeeId?: number; sensorIds: number[]; returnToDepot?: boolean }) =>
     request<RoutePreviewResult>('/api/routes/preview', { method: 'POST', body: JSON.stringify(payload) }),
 
-  createTask: (payload: { employeeId: number; sensorIds: number[]; startType: string; note?: string }) =>
+  createTask: (payload: { employeeId: number; sensorIds: number[]; startType: string; note?: string; returnToDepot?: boolean }) =>
     request<{ task: TaskDetail }>('/api/tasks', { method: 'POST', body: JSON.stringify(payload) }),
 
   listTasks: (params?: { status?: string; employeeId?: number }) => {
@@ -252,7 +252,7 @@ export const api = {
 
   cancelTask: (id: number) => request<{ task: TaskDetail }>(`/api/tasks/${id}/cancel`, { method: 'PATCH' }),
 
-  reoptimizeTask: (id: number, payload?: { sensorIds?: number[]; startType?: string }) =>
+  reoptimizeTask: (id: number, payload?: { sensorIds?: number[]; startType?: string; returnToDepot?: boolean }) =>
     request<{ task: TaskDetail }>(`/api/tasks/${id}/reoptimize`, {
       method: 'POST',
       body: JSON.stringify(payload || {}),

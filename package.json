@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:java-frontend": "vite --port 3000",
+    "preview:server": "tsx server.ts",
     "build": "vite build",
     "start": "NODE_ENV=production tsx server.ts",
     "preview": "vite preview",

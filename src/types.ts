@@ -117,6 +117,7 @@ export interface TaskDetail {
   areaId: number;
   status: TaskStatus;
   startType: string;
+  returnToDepot?: boolean;
   startLat: number;
   startLng: number;
   routeGeometry: RouteGeometry | null;
@@ -135,6 +136,7 @@ export interface TaskDetail {
 
 export interface RoutePreviewResult {
   startType: string;
+  returnToDepot?: boolean;
   startPoint: { label: string; latitude: number; longitude: number };
   orderedStops: Array<{
     sensorId: number;

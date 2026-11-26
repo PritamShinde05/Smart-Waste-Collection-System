@@ -10,7 +10,7 @@ This document defines the HTTP ingestion endpoint used by smart bin hardware dev
 2. Enter a unique **Bin ID** (e.g., `BIN-101`), label, bin height in cm, reading interval, full threshold, and drop the map pin at the bin's physical GPS coordinates.
 3. Submit the form. The server returns a **one-time Device Key** (format `vr_<sensorId>_<randomHex>`).
 4. Copy the key immediately (it is hashed with BCrypt on the server and cannot be viewed again; if lost, regenerate it from **Bin Detail -> Regenerate Device Key**).
-5. Flash the `BIN_ID` and `DEVICE_KEY` into `/hardware/smart_bin_esp32.ino`.
+5. In `/hardware/smart_bin_esp32.ino`, replace `WIFI_SSID`, `WIFI_PASSWORD`, `SERVER_BASE_URL`, `BIN_ID`, `DEVICE_KEY`, `SENSOR_MOUNT_OFFSET_CM` (measured transducer clearance above the bin rim), and `ROOT_CA_PEM` (your HTTPS server Root CA certificate for `setCACert()` TLS verification). Do **not** use `setInsecure()` in production.
 
 ---
 

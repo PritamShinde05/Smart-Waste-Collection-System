@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { calculateFillPercentage, computeSensorStatus } from '../server/status.ts';
+import { solveOptimizedTour, tourDuration } from '../server/routing.ts';
 import { db } from '../server/db.ts';
 
 const BASE = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
@@ -40,7 +41,23 @@ function runUnitTests() {
   assert.equal(computeSensorStatus(80, expired, 900, 50, 80, now, true), 'OFFLINE');
   assert.equal(computeSensorStatus(80, recent, 900, 50, 80, now, false), 'OFFLINE');
   assert.equal(computeSensorStatus(null, recent, 900, 50, 80, now, true), 'OFFLINE');
-  console.log('PASS unit tests (fill %, thresholds, 2x interval offline, inactive status)');
+
+  // Route optimization: Multi-start + 2-opt + Or-opt + returnToDepot
+  const asymmetricMatrix = [
+    [0, 10, 30, 35],
+    [200, 0, 10, 15],
+    [1, 30, 0, 12],
+    [500, 35, 10, 0],
+  ];
+  const openOrder = solveOptimizedTour(3, asymmetricMatrix, false);
+  assert.deepEqual(openOrder, [1, 2, 3]);
+  assert.equal(tourDuration(openOrder, asymmetricMatrix, false), 32);
+
+  const roundTripOrder = solveOptimizedTour(3, asymmetricMatrix, true);
+  assert.deepEqual(roundTripOrder, [1, 3, 2]);
+  assert.equal(tourDuration(roundTripOrder, asymmetricMatrix, true), 36);
+
+  console.log('PASS unit tests (fill %, thresholds, 2x interval offline, asymmetric & returnToDepot routing)');
 }
 
 async function runE2E() {
@@ -265,7 +282,22 @@ async function runE2E() {
     const bin3Check = await req(`/api/sensors/${createdSensors[2].id}`, {}, tokenA1);
     assert.equal(bin3Check.json.sensor.status, 'OFFLINE');
 
-    // 8. Live OSRM Route Preview & Task Creation -> Accept -> Edit/Reoptimize -> Collect -> Complete
+    // 7f. Offline -> Online recovery when reading arrives after exceeding 2 * intervalSeconds
+    const staleSeen = new Date(Date.now() - 2_000_000).toISOString();
+    db.prepare('UPDATE sensors SET last_seen_at = ? WHERE id = ?').run(staleSeen, createdSensors[0].id);
+    const offlineCheck = await req(`/api/sensors/${createdSensors[0].id}`, {}, tokenA1);
+    assert.equal(offlineCheck.status, 200);
+    assert.equal(offlineCheck.json.sensor.status, 'OFFLINE');
+
+    const recoveredRead = await req('/api/device/reading', {
+      method: 'POST',
+      headers: { 'X-Device-Key': createdSensors[0].deviceKey },
+      body: JSON.stringify({ binId: 'QA-BIN-1', distanceCm: 10 }),
+    });
+    assert.equal(recoveredRead.status, 201);
+    assert.equal(recoveredRead.json.status, 'FULL');
+
+    // 8. Live OSRM Route Preview (open & returnToDepot) + Waypoint Limit + Task Creation -> Accept -> Edit/Reoptimize -> Collect -> Complete
     const preview = await req(
       '/api/routes/preview',
       {
@@ -274,6 +306,7 @@ async function runE2E() {
           startType: 'DEPOT',
           employeeId: empId,
           sensorIds: [createdSensors[0].id, createdSensors[1].id],
+          returnToDepot: false,
         }),
       },
       tokenA1
@@ -282,6 +315,57 @@ async function runE2E() {
     assert.equal(preview.json.routeGeometry.type, 'LineString');
     assert.ok(preview.json.routeGeometry.coordinates.length >= 2);
     assert.ok(preview.json.totalDistanceMeters > 0);
+    assert.equal(preview.json.returnToDepot, false);
+
+    const roundTripPreview = await req(
+      '/api/routes/preview',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          startType: 'DEPOT',
+          employeeId: empId,
+          sensorIds: [createdSensors[0].id, createdSensors[1].id],
+          returnToDepot: true,
+        }),
+      },
+      tokenA1
+    );
+    assert.equal(roundTripPreview.status, 200, `Round-trip OSRM preview failed: ${JSON.stringify(roundTripPreview.json)}`);
+    assert.equal(roundTripPreview.json.returnToDepot, true);
+    assert.ok(roundTripPreview.json.totalDistanceMeters >= preview.json.totalDistanceMeters);
+
+    // >50 distinct waypoints rejected with 400
+    const insertTempSensor = db.prepare(
+      `INSERT INTO sensors (area_id, bin_id, label, latitude, longitude, bin_height_cm, interval_seconds, full_threshold, device_key_hash, status, is_active)
+       VALUES (?, ?, ?, ?, ?, 100, 900, 80, 'temp_hash', 'NORMAL', 1)`
+    );
+    const overLimitIds = [...createdSensors.map((s) => s.id)];
+    for (let i = 0; i < 48; i++) {
+      const ins = insertTempSensor.run(
+        area1Id,
+        `QA-EXTRA-${i}`,
+        `Extra Bin ${i}`,
+        18.52 + i * 0.0005,
+        73.85 + i * 0.0005
+      );
+      overLimitIds.push(Number(ins.lastInsertRowid));
+    }
+    assert.equal(overLimitIds.length, 51);
+    const overLimit = await req(
+      '/api/routes/preview',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          startType: 'DEPOT',
+          employeeId: empId,
+          sensorIds: overLimitIds,
+        }),
+      },
+      tokenA1
+    );
+    assert.equal(overLimit.status, 400);
+    const tempIds = overLimitIds.slice(3);
+    db.prepare(`DELETE FROM sensors WHERE id IN (${tempIds.map(() => '?').join(',')})`).run(...tempIds);
 
     const taskCreate = await req(
       '/api/tasks',
@@ -291,13 +375,19 @@ async function runE2E() {
           employeeId: empId,
           sensorIds: [createdSensors[0].id, createdSensors[1].id],
           startType: 'DEPOT',
+          returnToDepot: true,
           note: 'QA route test',
         }),
       },
       tokenA1
     );
     assert.equal(taskCreate.status, 201);
+    assert.equal(taskCreate.json.task.returnToDepot, true);
     const taskId = taskCreate.json.task.id;
+
+    const fetchedTask = await req(`/api/tasks/${taskId}`, {}, tokenA1);
+    assert.equal(fetchedTask.status, 200);
+    assert.equal(fetchedTask.json.task.returnToDepot, true);
 
     // Area 2 admin cannot view Area 1 task
     const isoTask = await req(`/api/tasks/${taskId}`, {}, tokenA2);

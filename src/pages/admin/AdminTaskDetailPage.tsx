@@ -259,7 +259,12 @@ export const AdminTaskDetailPage: React.FC = () => {
       {/* Route Map + Ordered Stops */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
-          <h2 className="font-display text-base font-semibold text-slate-900">Optimized Road Route</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-base font-semibold text-slate-900">Optimized Road Route</h2>
+            {task.returnToDepot && (
+              <span className="text-xs font-medium text-emerald-700">Includes return to start</span>
+            )}
+          </div>
           <RouteMap
             startLat={task.startLat}
             startLng={task.startLng}

@@ -34,6 +34,7 @@ export const AdminCreateTaskPage: React.FC = () => {
     return raw ? Number(raw) : '';
   });
   const [startType, setStartType] = useState<'DEPOT' | 'EMPLOYEE_LAST_LOCATION'>('DEPOT');
+  const [returnToDepot, setReturnToDepot] = useState(false);
   const [note, setNote] = useState('');
 
   const [preview, setPreview] = useState<RoutePreviewResult | null>(null);
@@ -96,6 +97,7 @@ export const AdminCreateTaskPage: React.FC = () => {
         startType,
         employeeId: employeeId ? Number(employeeId) : undefined,
         sensorIds: selectedBinIds,
+        returnToDepot,
       });
       setPreview(res);
     } catch (err: any) {
@@ -122,6 +124,7 @@ export const AdminCreateTaskPage: React.FC = () => {
         sensorIds: selectedBinIds,
         startType,
         note: note.trim() || undefined,
+        returnToDepot,
       });
       showToast(`Task #${res.task.id} assigned with optimized road route.`, 'success');
       navigate(`/admin/tasks/${res.task.id}`, { replace: true });
@@ -302,6 +305,22 @@ export const AdminCreateTaskPage: React.FC = () => {
             </button>
           </div>
 
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 cursor-pointer">
+            <div>
+              <div className="text-xs font-semibold text-slate-800">Include return trip to start point</div>
+              <div className="text-[11px] text-slate-500">Optimizes loop and totals for round-trip disposal return</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={returnToDepot}
+              onChange={(e) => {
+                setReturnToDepot(e.target.checked);
+                setPreview(null);
+              }}
+              className="h-4 w-4 accent-emerald-600"
+            />
+          </label>
+
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1" htmlFor="task-note">
               Optional instruction note for employee
@@ -356,7 +375,8 @@ export const AdminCreateTaskPage: React.FC = () => {
             <div>
               <h2 className="font-display text-lg font-bold text-slate-900">Optimized Road Route Preview</h2>
               <p className="text-sm text-slate-600 tabular-nums">
-                {preview.orderedStops.length} stop(s) · Total distance:{' '}
+                {preview.orderedStops.length} stop(s)
+                {preview.returnToDepot ? ' (round trip to start)' : ''} · Total distance:{' '}
                 <strong className="font-mono text-slate-900">{formatDistance(preview.totalDistanceMeters)}</strong> · Est.
                 duration: <strong className="font-mono text-slate-900">{formatDuration(preview.estimatedTimeSeconds)}</strong>
               </p>

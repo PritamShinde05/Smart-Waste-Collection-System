@@ -39,6 +39,9 @@ public class CollectionTask {
     @Column(name = "start_lng", nullable = false)
     private Double startLng;
 
+    @Column(name = "return_to_depot", nullable = false)
+    private Boolean returnToDepot = false;
+
     @Lob
     @Column(name = "route_geometry", nullable = false, columnDefinition = "LONGTEXT")
     private String routeGeometry;
@@ -87,6 +90,8 @@ public class CollectionTask {
     public void setStartLat(Double startLat) { this.startLat = startLat; }
     public Double getStartLng() { return startLng; }
     public void setStartLng(Double startLng) { this.startLng = startLng; }
+    public Boolean getReturnToDepot() { return returnToDepot; }
+    public void setReturnToDepot(Boolean returnToDepot) { this.returnToDepot = returnToDepot; }
     public String getRouteGeometry() { return routeGeometry; }
     public void setRouteGeometry(String routeGeometry) { this.routeGeometry = routeGeometry; }
     public Double getTotalDistanceMeters() { return totalDistanceMeters; }

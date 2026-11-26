@@ -60,6 +60,7 @@ public class TaskAndRouteController {
         Area area = areaRepository.findById(principal.areaId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Area not found"));
         String startType = String.valueOf(body.getOrDefault("startType", "DEPOT"));
+        boolean returnToDepot = Boolean.TRUE.equals(body.get("returnToDepot"));
         Long employeeId = body.get("employeeId") instanceof Number n ? n.longValue() : null;
         if (!(body.get("sensorIds") instanceof List<?> rawList) || rawList.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Select at least one bin to generate an optimized route.");
@@ -75,7 +76,7 @@ public class TaskAndRouteController {
 
         double[] startCoords = resolveStartCoords(area, startType, employeeId);
         List<Sensor> bins = loadAreaSensors(area.getId(), sensorIds);
-        RouteOptimizationService.OptimizedResult opt = routeService.optimize(startCoords[0], startCoords[1], bins);
+        RouteOptimizationService.OptimizedResult opt = routeService.optimize(startCoords[0], startCoords[1], bins, returnToDepot);
 
         List<Map<String, Object>> stops = new ArrayList<>();
         for (int i = 0; i < opt.orderedBins().size(); i++) {
@@ -93,6 +94,7 @@ public class TaskAndRouteController {
 
         return Map.of(
                 "startType", startType,
+                "returnToDepot", returnToDepot,
                 "startPoint", Map.of("label", "EMPLOYEE_LAST_LOCATION".equals(startType) ? "Employee Last Location" : area.getName() + " Depot", "latitude", startCoords[0], "longitude", startCoords[1]),
                 "orderedStops", stops,
                 "routeGeometry", objectMapper.readTree(opt.routeGeometryJson()),
@@ -113,6 +115,7 @@ public class TaskAndRouteController {
         }
         Long employeeId = empNum.longValue();
         String startType = String.valueOf(body.getOrDefault("startType", "DEPOT"));
+        boolean returnToDepot = Boolean.TRUE.equals(body.get("returnToDepot"));
         String note = body.get("note") != null ? String.valueOf(body.get("note")).trim() : null;
         List<Long> sensorIds = rawList.stream()
                 .filter(Number.class::isInstance)
@@ -134,7 +137,7 @@ public class TaskAndRouteController {
 
         double[] startCoords = resolveStartCoords(area, startType, employeeId);
         List<Sensor> bins = loadAreaSensors(area.getId(), sensorIds);
-        RouteOptimizationService.OptimizedResult opt = routeService.optimize(startCoords[0], startCoords[1], bins);
+        RouteOptimizationService.OptimizedResult opt = routeService.optimize(startCoords[0], startCoords[1], bins, returnToDepot);
 
         CollectionTask task = new CollectionTask();
         task.setArea(area);
@@ -144,6 +147,7 @@ public class TaskAndRouteController {
         task.setStartType(startType);
         task.setStartLat(startCoords[0]);
         task.setStartLng(startCoords[1]);
+        task.setReturnToDepot(returnToDepot);
         task.setRouteGeometry(opt.routeGeometryJson());
         task.setTotalDistanceMeters(opt.totalDistanceMeters());
         task.setEstimatedTimeSeconds(opt.estimatedTimeSeconds());
@@ -247,6 +251,9 @@ public class TaskAndRouteController {
         String nextStartType = body != null && body.get("startType") != null
                 ? String.valueOf(body.get("startType"))
                 : t.getStartType();
+        boolean nextReturnToDepot = body != null && body.get("returnToDepot") instanceof Boolean b
+                ? b
+                : Boolean.TRUE.equals(t.getReturnToDepot());
         double[] startCoords = resolveStartCoords(t.getArea(), nextStartType, t.getAssignedTo().getId());
 
         List<Sensor> bins;
@@ -264,7 +271,7 @@ public class TaskAndRouteController {
             bins = t.getStops().stream().map(TaskBin::getSensor).toList();
         }
 
-        RouteOptimizationService.OptimizedResult opt = routeService.optimize(startCoords[0], startCoords[1], bins);
+        RouteOptimizationService.OptimizedResult opt = routeService.optimize(startCoords[0], startCoords[1], bins, nextReturnToDepot);
 
         Map<Long, Instant> prevCollected = new HashMap<>();
         Map<Long, Double> prevFill = new HashMap<>();
@@ -276,6 +283,7 @@ public class TaskAndRouteController {
         t.setStartType(nextStartType);
         t.setStartLat(startCoords[0]);
         t.setStartLng(startCoords[1]);
+        t.setReturnToDepot(nextReturnToDepot);
         t.setRouteGeometry(opt.routeGeometryJson());
         t.setTotalDistanceMeters(opt.totalDistanceMeters());
         t.setEstimatedTimeSeconds(opt.estimatedTimeSeconds());
@@ -528,6 +536,7 @@ public class TaskAndRouteController {
         Map<String, Object> m = serializeTaskSummary(t);
         m.put("areaId", t.getArea().getId());
         m.put("startType", t.getStartType());
+        m.put("returnToDepot", Boolean.TRUE.equals(t.getReturnToDepot()));
         m.put("startLat", t.getStartLat());
         m.put("startLng", t.getStartLng());
         try {
